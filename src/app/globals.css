@@ -1,0 +1,158 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ------------------------------------------------------------------ */
+/* Design tokens — warm grayscale, one amber accent.                   */
+/* ------------------------------------------------------------------ */
+
+:root {
+  --bg: 40 14% 96%;
+  --surface: 40 22% 99%;
+  --raised: 0 0% 100%;
+  --overlay: 40 10% 92%;
+  --line: 40 9% 87%;
+  --line-strong: 40 8% 77%;
+  --ink: 240 6% 13%;
+  --ink-muted: 240 4% 38%;
+  --ink-faint: 240 3% 55%;
+  --accent: 26 78% 42%;
+  --accent-fg: 40 40% 98%;
+  --danger: 0 62% 45%;
+  --ok: 152 45% 32%;
+  --warn: 36 85% 38%;
+  --shadow: 240 10% 25%;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: 240 5% 6.5%;
+  --surface: 240 4% 9%;
+  --raised: 240 4% 12.5%;
+  --overlay: 240 4% 17%;
+  --line: 240 4% 15.5%;
+  --line-strong: 240 4% 24%;
+  --ink: 40 12% 92%;
+  --ink-muted: 240 5% 65%;
+  --ink-faint: 240 4% 45%;
+  --accent: 28 84% 58%;
+  --accent-fg: 24 65% 9%;
+  --danger: 0 72% 63%;
+  --ok: 152 52% 55%;
+  --warn: 38 92% 60%;
+  --shadow: 240 40% 2%;
+  color-scheme: dark;
+}
+
+/* ------------------------------------------------------------------ */
+/* Base                                                                */
+/* ------------------------------------------------------------------ */
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-bg text-ink;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+::selection {
+  background: hsl(var(--accent) / 0.28);
+}
+
+:focus-visible {
+  outline: none;
+}
+
+/* Thin, quiet scrollbars everywhere. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--line-strong)) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: hsl(var(--line-strong) / 0.8);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--ink-faint));
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* ------------------------------------------------------------------ */
+/* Range input — the inspector's workhorse.                            */
+/* ------------------------------------------------------------------ */
+
+.atlas-range {
+  @apply block h-4 w-full cursor-pointer appearance-none bg-transparent;
+}
+.atlas-range::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 3px;
+  background: hsl(var(--line-strong));
+}
+.atlas-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -4.5px;
+  height: 12px;
+  width: 12px;
+  border-radius: 999px;
+  background: hsl(var(--accent));
+  border: 2px solid hsl(var(--surface));
+  box-shadow: 0 0 0 1px hsl(var(--line-strong));
+  transition: transform 0.12s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.atlas-range::-webkit-slider-thumb:hover,
+.atlas-range:active::-webkit-slider-thumb {
+  transform: scale(1.25);
+}
+.atlas-range:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px hsl(var(--accent) / 0.35);
+}
+.atlas-range::-moz-range-track {
+  height: 3px;
+  border-radius: 3px;
+  background: hsl(var(--line-strong));
+}
+.atlas-range::-moz-range-thumb {
+  height: 12px;
+  width: 12px;
+  border-radius: 999px;
+  background: hsl(var(--accent));
+  border: 2px solid hsl(var(--surface));
+}
+
+/* ------------------------------------------------------------------ */
+/* Motion accessibility                                                */
+/* ------------------------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Keep Leva under our dialogs but above the viewport. */
+#leva__root {
+  position: relative;
+  z-index: 60;
+}
