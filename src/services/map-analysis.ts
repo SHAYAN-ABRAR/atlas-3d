@@ -24,6 +24,7 @@ function classifyInWorker(
   data: Uint8ClampedArray,
   width: number,
   height: number,
+  factor: number,
 ): Promise<number[]> {
   return new Promise((resolve, reject) => {
     try {
@@ -42,7 +43,7 @@ function classifyInWorker(
         worker.terminate();
         reject(new Error('worker failed'));
       };
-      worker.postMessage({ data, width, height });
+      worker.postMessage({ data, width, height, factor });
     } catch (err) {
       reject(err);
     }
@@ -56,24 +57,28 @@ function classifyInWorker(
 export async function analyzeMapImage(dataUrl: string, sourceName: string): Promise<MapAnalysis> {
   const img = await loadImage(dataUrl);
   const res = MAP_ANALYSIS_RES;
+  // Classify from oversampled pixels so per-cell texture can tell smooth
+  // water apart from photographed rooftops.
+  const OVERSAMPLE = 4;
+  const px = res * OVERSAMPLE;
   const canvas = document.createElement('canvas');
-  canvas.width = res;
-  canvas.height = res;
+  canvas.width = px;
+  canvas.height = px;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) throw new Error('Canvas 2D unavailable');
 
   // Cover-fit so aspect ratio doesn't skew classification.
-  const scale = Math.max(res / img.width, res / img.height);
+  const scale = Math.max(px / img.width, px / img.height);
   const dw = img.width * scale;
   const dh = img.height * scale;
-  ctx.drawImage(img, (res - dw) / 2, (res - dh) / 2, dw, dh);
-  const { data } = ctx.getImageData(0, 0, res, res);
+  ctx.drawImage(img, (px - dw) / 2, (px - dh) / 2, dw, dh);
+  const { data } = ctx.getImageData(0, 0, px, px);
 
   let cells: number[];
   try {
-    cells = await classifyInWorker(data, res, res);
+    cells = await classifyInWorker(data, px, px, OVERSAMPLE);
   } catch {
-    cells = classifyPixels(data, res, res); // main-thread fallback
+    cells = classifyPixels(data, px, px, OVERSAMPLE); // main-thread fallback
   }
 
   const counts = [0, 0, 0, 0, 0];

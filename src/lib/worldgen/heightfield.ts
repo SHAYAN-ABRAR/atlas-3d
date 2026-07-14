@@ -104,8 +104,10 @@ export function buildHeightfield(world: WorldState, res: number, size: number): 
         } else if (cls === 3 || cls === 4) {
           const plateau = Math.max(waterLevel + amp * 0.06 + 1, amp * 0.34);
           h = lerp(h, plateau, 0.8);
-        } else if (cls === 2) {
-          h = Math.max(h, waterLevel + 0.8);
+        } else {
+          // The map says dry ground here — terrain noise must never dip into
+          // phantom lakes the source image doesn't have.
+          h = Math.max(h, waterLevel + 0.7);
         }
       }
 
@@ -113,7 +115,8 @@ export function buildHeightfield(world: WorldState, res: number, size: number): 
     }
   }
 
-  carveRivers(world, heights, res, size, waterLevel);
+  // Rivers are procedural flavor — an uploaded map dictates its own water.
+  if (!analysis) carveRivers(world, heights, res, size, waterLevel);
   return { heights, waterLevel };
 }
 

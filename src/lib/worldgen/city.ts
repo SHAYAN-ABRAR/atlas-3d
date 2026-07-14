@@ -2,6 +2,7 @@ import { BUILDING_STYLES } from '@/config/constants';
 import { mulberry32, type Rng } from '@/lib/rng';
 import { clamp, lerp } from '@/lib/utils';
 import type { BuildingInstance, RoadSegment, WorldState } from '@/types/world';
+import { vectorizeRoads } from './roads';
 
 export interface CityGenResult {
   roads: RoadSegment[];
@@ -252,47 +253,99 @@ function generateFromMap(
   const toWorldX = (x: number) => -half + (x + 0.5) * cellW;
   const toWorldZ = (z: number) => -half + (z + 0.5) * cellH;
 
-  // Horizontal + vertical road runs from consecutive road cells.
-  for (let z = 0; z < mh; z++) {
-    let run = -1;
-    for (let x = 0; x <= mw; x++) {
-      const isRoad = at(x, z) === 3;
-      if (isRoad && run < 0) run = x;
-      if (!isRoad && run >= 0) {
-        if (x - run >= 2)
-          roads.push({ ax: toWorldX(run), az: toWorldZ(z), bx: toWorldX(x - 1), bz: toWorldZ(z), width: roadW });
-        run = -1;
-      }
-    }
-  }
-  for (let x = 0; x < mw; x++) {
-    let run = -1;
-    for (let z = 0; z <= mh; z++) {
-      const isRoad = at(x, z) === 3;
-      if (isRoad && run < 0) run = z;
-      if (!isRoad && run >= 0) {
-        if (z - run >= 2)
-          roads.push({ ax: toWorldX(x), az: toWorldZ(run), bx: toWorldX(x), bz: toWorldZ(z - 1), width: roadW });
-        run = -1;
-      }
+  // Roads: skeletonize + trace + simplify the classified road network so
+  // straight and diagonal streets stay straight instead of becoming
+  // axis-aligned staircase stubs.
+  for (const line of vectorizeRoads(cells, mw, mh)) {
+    for (let i = 1; i < line.length; i++) {
+      roads.push({
+        ax: toWorldX(line[i - 1][0]),
+        az: toWorldZ(line[i - 1][1]),
+        bx: toWorldX(line[i][0]),
+        bz: toWorldZ(line[i][1]),
+        width: roadW,
+      });
     }
   }
 
-  // Buildings on classified building cells.
-  const styleDef = BUILDING_STYLES[world.city.style];
-  for (let z = 0; z < mh; z++) {
-    for (let x = 0; x < mw; x++) {
-      if (at(x, z) !== 4) continue;
-      if (rng() > clamp(world.city.density * 1.5, 0.1, 0.97)) continue;
-      const cx = toWorldX(x) + (rng() - 0.5) * cellW * 0.3;
-      const cz = toWorldZ(z) + (rng() - 0.5) * cellH * 0.3;
-      const y = suitable(sampler, waterLevel, cx, cz);
-      if (y === null) continue;
-      const b = makeBuilding(world, rng, cx, cz, y, 0, 0.5, Math.min(cellW, cellH) * 1.4);
-      b.w = Math.min(b.w, cellW * 1.15);
-      b.d = Math.min(b.d, cellH * 1.15);
-      buildings.push(b);
+  // Buildings: aggregate 2×2 analysis cells into lots so built areas read as
+  // city blocks rather than one tower per classified pixel.
+  let builtCells = 0;
+  for (const c of cells) if (c === 4) builtCells++;
+  const globalDensity = builtCells / cells.length;
+
+  // Fraction of building cells in an 11×11 neighborhood around (x, z).
+  const localDensity = (x: number, z: number): number => {
+    let n = 0;
+    let total = 0;
+    for (let dz = -5; dz <= 5; dz++)
+      for (let dx = -5; dx <= 5; dx++) {
+        const cx = x + dx;
+        const cz = z + dz;
+        if (cx < 0 || cz < 0 || cx >= mw || cz >= mh) continue;
+        total++;
+        if (cells[cz * mw + cx] === 4) n++;
+      }
+    return total > 0 ? n / total : 0;
+  };
+
+  const lots: { x: number; z: number; centrality: number; weight: number }[] = [];
+  for (let bz = 0; bz + 1 < mh; bz += 2) {
+    for (let bx = 0; bx + 1 < mw; bx += 2) {
+      let filled = 0;
+      if (at(bx, bz) === 4) filled++;
+      if (at(bx + 1, bz) === 4) filled++;
+      if (at(bx, bz + 1) === 4) filled++;
+      if (at(bx + 1, bz + 1) === 4) filled++;
+      if (filled < 2) continue;
+      const d01 = localDensity(bx, bz);
+      // A stray classified speck in otherwise open ground is noise, not a
+      // building — real lots sit inside genuinely built-up fabric.
+      if (d01 < globalDensity * 0.3) continue;
+      // Height follows how much denser this block is than the map average,
+      // so uniform urban fabric stays mid-rise and only real cores get towers.
+      const centrality = clamp((d01 - globalDensity) * 2 + 0.25, 0, 0.9);
+      lots.push({
+        x: toWorldX(bx + 0.5),
+        z: toWorldZ(bz + 0.5),
+        centrality,
+        weight: 0.25 + 0.75 * d01,
+      });
     }
+  }
+
+  // Streets must stay open: the largest footprint a building at (x, z) can
+  // have without touching the pavement of any traced road.
+  const clearance = roadW / 2 + 1.4; // half road width + sidewalk margin
+  const roomFor = (x: number, z: number): number => {
+    let nearest = Infinity;
+    for (const r of roads) {
+      const dx = r.bx - r.ax;
+      const dz = r.bz - r.az;
+      const l2 = dx * dx + dz * dz || 1;
+      const t = clamp(((x - r.ax) * dx + (z - r.az) * dz) / l2, 0, 1);
+      const d = Math.hypot(x - (r.ax + dx * t), z - (r.az + dz * t));
+      if (d < nearest) nearest = d;
+    }
+    return (nearest - clearance) * 1.5;
+  };
+
+  // The density slider sets an overall building budget, never one per pixel.
+  const budget = Math.round(lerp(200, 900, clamp(world.city.density, 0, 1)));
+  let totalWeight = 0;
+  for (const lot of lots) totalWeight += lot.weight;
+  const lotLimit = Math.min(cellW, cellH) * 1.7;
+  for (const lot of lots) {
+    // Denser map areas keep more of their lots, so the built structure
+    // follows the source image instead of uniform sprinkling.
+    if (rng() > (lot.weight * budget) / Math.max(1e-6, totalWeight)) continue;
+    const cx = lot.x + (rng() - 0.5) * cellW * 0.5;
+    const cz = lot.z + (rng() - 0.5) * cellH * 0.5;
+    const room = roomFor(cx, cz);
+    if (room < 3.5) continue; // a road runs through this lot — leave it open
+    const y = suitable(sampler, waterLevel, cx, cz);
+    if (y === null) continue;
+    buildings.push(makeBuilding(world, rng, cx, cz, y, 0, lot.centrality, Math.min(lotLimit, room)));
   }
 
   // Fall back to a small procedural district when the map has no built areas.

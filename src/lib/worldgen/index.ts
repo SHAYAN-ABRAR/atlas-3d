@@ -96,9 +96,14 @@ export function generateWorld(world: WorldState): GeneratedWorld {
   }
   sampler = makeSampler(heights, res, size);
 
-  // Settle each building onto a flat pad so nothing floats or clips.
+  // Settle each building onto a flat pad so nothing floats or clips. Road
+  // grading can pull shoreline lots down after placement — drop those
+  // instead of leaving a building poking out of the water.
+  const settled: typeof buildings = [];
   for (const b of buildings) {
     b.y = sampler(b.x, b.z);
+    if (b.y < waterLevel + 0.5) continue;
+    settled.push(b);
     const rad = Math.max(b.w, b.d) * 0.72 + cell;
     const x0 = Math.max(0, Math.floor((b.x - rad + half) / cell));
     const x1 = Math.min(res - 1, Math.ceil((b.x + rad + half) / cell));
@@ -130,7 +135,7 @@ export function generateWorld(world: WorldState): GeneratedWorld {
     for (let gz = gz0; gz <= gz1; gz++)
       for (let gx = gx0; gx <= gx1; gx++) occ[gz * OCC + gx] = 1;
   };
-  for (const b of buildings) mark(b.x, b.z, Math.max(b.w, b.d) * 0.75 + 1.5);
+  for (const b of settled) mark(b.x, b.z, Math.max(b.w, b.d) * 0.75 + 1.5);
   for (const r of roads) {
     const len = Math.hypot(r.bx - r.ax, r.bz - r.az);
     const steps = Math.max(1, Math.ceil(len / (size / OCC)));
@@ -154,7 +159,7 @@ export function generateWorld(world: WorldState): GeneratedWorld {
   let roadLength = 0;
   for (const r of roads) roadLength += Math.hypot(r.bx - r.ax, r.bz - r.az);
   let tallest = 0;
-  for (const b of buildings) tallest = Math.max(tallest, b.h);
+  for (const b of settled) tallest = Math.max(tallest, b.h);
   const landArea = size * size * (1 - underwater / heights.length);
   const greenCoverage =
     landArea > 0 ? Math.min(1, (trees.length * 30) / landArea) : 0;
@@ -166,18 +171,18 @@ export function generateWorld(world: WorldState): GeneratedWorld {
     heights,
     waterLevel,
     roads,
-    buildings,
+    buildings: settled,
     trees,
     heightAt: sampler,
     stats: {
-      buildings: buildings.length,
+      buildings: settled.length,
       tallestBuilding: tallest,
       trees: trees.length,
       roadLength,
       waterCoverage: underwater / heights.length,
       greenCoverage,
       triangleEstimate:
-        (res - 1) * (res - 1) * 2 + buildings.length * 22 + trees.length * 60 + roads.length * 12,
+        (res - 1) * (res - 1) * 2 + settled.length * 22 + trees.length * 60 + roads.length * 12,
     },
   };
 
